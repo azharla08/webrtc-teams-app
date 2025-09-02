@@ -329,6 +329,28 @@ app.use((error, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// === ICE config endpoint (TURN/STUN) ===
+app.get('/api/ice', (_req, res) => {
+  const stun = (process.env.STUN_URLS || 'stun:stun.l.google.com:19302')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const turn = (process.env.TURN_URLS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const iceServers = [
+    ...stun.map(url => ({ urls: url })),
+    ...(turn.length
+      ? [{ urls: turn, username: process.env.TURN_USERNAME, credential: process.env.TURN_CREDENTIAL }]
+      : [])
+  ];
+
+  res.json({ iceServers });
+});
+
 // Start server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
