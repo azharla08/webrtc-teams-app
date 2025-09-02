@@ -76,17 +76,25 @@ async function createPeer(remoteSocketId) {
 
 async function doOffer(remoteSocketId) {
   const pc = peers.get(remoteSocketId) || await createPeer(remoteSocketId);
+  // Only create an offer from 'stable' state.
+  if (pc.signalingState !== 'stable') {
+    console.warn('[simple] skip offer, state =', pc.signalingState);
+    return;
+  }
   const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
   await pc.setLocalDescription(offer);
   socket.emit('offer', { targetSocketId: remoteSocketId, offer });
 }
 
-async function doAnswer(fromSocketId, offer) {
-  const pc = peers.get(fromSocketId) || await createPeer(fromSocketId);
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  socket.emit('answer', { targetSocketId: fromSocketId, answer });
+async function handleAnswer(fromSocketId, answer) {
+  const pc = peers.get(fromSocketId);
+  if (!pc) return;
+  // Only accept an answer when we actually have a local offer outstanding
+  if (pc.signalingState !== 'have-local-offer') {
+    console.warn('[simple] ignoring answer in state:', pc.signalingState);
+    return;
+  }
+  await pc.setRemoteDescription(new RTCSessionDescription(answer));
 }
 
 async function handleAnswer(fromSocketId, answer) {
@@ -151,11 +159,12 @@ async function join() {
     }
   });
 
-  socket.on('user-joined', async ({ socketId }) => {
-    // new peer joined after us; create offer to them
-    await createPeer(socketId);
-    await doOffer(socketId);
-  });
+socket.on('user-joined', async ({ socketId }) => {
+  // Existing participants wait for the NEW joiner to offer (avoid glare).
+  // Pre-create the peer so tracks attach cleanly when offer arrives.
+  await createPeer(socketId);
+  // No offer here.
+});
 
   socket.on('offer', async ({ fromSocketId, offer }) => {
     await doAnswer(fromSocketId, offer);
