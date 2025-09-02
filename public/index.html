@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Teams Integration</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header Navigation -->
+    <header class="header">
+        <div class="container">
+            <div class="header__content">
+                <div class="header__left">
+                    <h1 class="header__title">Teams WebRTC</h1>
+                    <div class="header__room-info" id="roomInfo" style="display: none;">
+                        <span class="room-name" id="roomName">Weekly Team Sync</span>
+                        <span class="room-duration" id="roomDuration">00:15:32</span>
+                    </div>
+                </div>
+                <div class="header__right">
+                    <button class="btn btn--outline btn--sm" id="settingsBtn" style="display: none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"></path>
+                        </svg>
+                        Settings
+                    </button>
+                    <button class="btn btn--outline btn--sm" id="teamsBtn" style="display: none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87m-4-12a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                        Teams
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main">
+        <!-- Dashboard View -->
+        <div class="view" id="dashboardView">
+            <div class="container">
+                <div class="dashboard">
+                    <div class="dashboard__header">
+                        <h2>Join or Create a Meeting</h2>
+                        <p class="dashboard__subtitle">Connect with your team using WebRTC technology</p>
+                    </div>
+                    
+                    <div class="dashboard__content">
+                        <div class="dashboard__card">
+                            <div class="card">
+                                <div class="card__body">
+                                    <h3>Join Meeting</h3>
+                                    <p>Enter a room code to join an existing meeting</p>
+                                    <div class="form-group">
+                                        <label class="form-label" for="roomCodeInput">Room Code</label>
+                                        <input type="text" class="form-control" id="roomCodeInput" placeholder="Enter room code">
+                                    </div>
+                                    <button class="btn btn--primary btn--full-width" id="joinRoomBtn">Join Meeting</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="dashboard__card">
+                            <div class="card">
+                                <div class="card__body">
+                                    <h3>Create Meeting</h3>
+                                    <p>Start a new meeting and invite others</p>
+                                    <div class="form-group">
+                                        <label class="form-label" for="roomNameInput">Meeting Name</label>
+                                        <input type="text" class="form-control" id="roomNameInput" placeholder="Weekly Team Sync" value="Weekly Team Sync">
+                                    </div>
+                                    <button class="btn btn--primary btn--full-width" id="createRoomBtn">Create Meeting</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard__status">
+                        <div class="status-card">
+                            <h4>System Status</h4>
+                            <div class="status-items">
+                                <div class="status-item">
+                                    <span class="status status--success">WebRTC</span>
+                                    <span>Supported</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status status--success">Camera</span>
+                                    <span>Available</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status status--success">Microphone</span>
+                                    <span>Available</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Call View -->
+        <div class="view hidden" id="videoCallView">
+            <div class="video-call-container">
+                <!-- Participants Grid -->
+                <div class="video-grid" id="videoGrid">
+                    <!-- Local video will be added here -->
+                    <!-- Remote videos will be added here -->
+                </div>
+
+                <!-- Controls Bar -->
+                <div class="controls-bar">
+                    <div class="controls-bar__left">
+                        <div class="participant-count" id="participantCount">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87m-4-12a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            <span id="participantCountText">3 participants</span>
+                        </div>
+                    </div>
+
+                    <div class="controls-bar__center">
+                        <button class="control-btn" id="micBtn" data-enabled="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                            </svg>
+                        </button>
+
+                        <button class="control-btn" id="cameraBtn" data-enabled="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 7l-7 5 7 5V7z"></path>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                        </button>
+
+                        <button class="control-btn" id="screenShareBtn" data-sharing="false">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                <line x1="8" y1="21" x2="16" y2="21"></line>
+                                <line x1="12" y1="17" x2="12" y2="21"></line>
+                            </svg>
+                        </button>
+
+                        <button class="control-btn control-btn--danger" id="leaveBtn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="controls-bar__right">
+                        <button class="btn btn--outline btn--sm" id="participantsBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87m-4-12a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            Participants
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Participants Sidebar -->
+            <div class="participants-sidebar hidden" id="participantsSidebar">
+                <div class="participants-sidebar__header">
+                    <h3>Participants</h3>
+                    <button class="btn btn--outline btn--sm" id="closeSidebarBtn">×</button>
+                </div>
+                <div class="participants-list" id="participantsList">
+                    <!-- Participants will be added here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div class="modal hidden" id="settingsModal">
+            <div class="modal__backdrop" id="settingsBackdrop"></div>
+            <div class="modal__content">
+                <div class="modal__header">
+                    <h3>Settings</h3>
+                    <button class="modal__close" id="closeSettingsBtn">×</button>
+                </div>
+                <div class="modal__body">
+                    <div class="settings-section">
+                        <h4>Audio & Video</h4>
+                        <div class="form-group">
+                            <label class="form-label" for="cameraSelect">Camera</label>
+                            <select class="form-control" id="cameraSelect">
+                                <option value="cam-001">HD Webcam (Built-in)</option>
+                                <option value="cam-002">External USB Camera</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="microphoneSelect">Microphone</label>
+                            <select class="form-control" id="microphoneSelect">
+                                <option value="mic-001">Default Microphone</option>
+                                <option value="mic-002">Headset Microphone</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="speakerSelect">Speakers</label>
+                            <select class="form-control" id="speakerSelect">
+                                <option value="spk-001">Default Speakers</option>
+                                <option value="spk-002">Headset Speakers</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h4>Video Quality</h4>
+                        <div class="form-group">
+                            <label class="form-label" for="videoQuality">Quality</label>
+                            <select class="form-control" id="videoQuality">
+                                <option value="high">High (720p)</option>
+                                <option value="medium" selected>Medium (480p)</option>
+                                <option value="low">Low (360p)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h4>Connection Info</h4>
+                        <div class="connection-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Bandwidth:</span>
+                                <span class="stat-value">1.2 Mbps</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Latency:</span>
+                                <span class="stat-value">45ms</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Packet Loss:</span>
+                                <span class="stat-value">0.1%</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Codec:</span>
+                                <span class="stat-value">VP8/Opus</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Teams Integration Modal -->
+        <div class="modal hidden" id="teamsModal">
+            <div class="modal__backdrop" id="teamsBackdrop"></div>
+            <div class="modal__content">
+                <div class="modal__header">
+                    <h3>Teams Integration</h3>
+                    <button class="modal__close" id="closeTeamsBtn">×</button>
+                </div>
+                <div class="modal__body">
+                    <div class="teams-section">
+                        <h4>Teams Context</h4>
+                        <div class="teams-info">
+                            <div class="info-item">
+                                <span class="info-label">Team:</span>
+                                <span class="info-value">Engineering Team</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Channel:</span>
+                                <span class="info-value">General</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">User:</span>
+                                <span class="info-value">john.smith@contoso.com</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Meeting ID:</span>
+                                <span class="info-value">meet-456789</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="teams-section">
+                        <h4>Integration Status</h4>
+                        <div class="status-items">
+                            <div class="status-item">
+                                <span class="status status--success">Teams SDK</span>
+                                <span>Connected</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status status--success">Authentication</span>
+                                <span>Verified</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status status--info">Theme</span>
+                                <span>Default</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="teams-section">
+                        <h4>Actions</h4>
+                        <button class="btn btn--outline btn--full-width">Copy Meeting Link</button>
+                        <button class="btn btn--secondary btn--full-width mt-8">Share to Channel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer">
+        <!-- Toasts will be added here -->
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
