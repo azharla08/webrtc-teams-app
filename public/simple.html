@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simple WebRTC Test</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    input, button { padding: 8px 12px; font-size: 14px; }
+    video { width: 45%; max-width: 480px; background: #000; border-radius: 8px; }
+    #remotes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .hint { color:#555; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h2>Simple WebRTC Test</h2>
+  <div class="row">
+    <label>Room ID:</label>
+    <input id="roomId" placeholder="e.g. demo123" />
+    <button id="btnJoin">Join</button>
+    <button id="btnLeave" disabled>Leave</button>
+  </div>
+  <p class="hint">Open this page on two devices with the same Room ID. Allow camera & microphone.</p>
+
+  <h3>Local</h3>
+  <video id="localVideo" autoplay playsinline muted></video>
+
+  <h3>Remotes</h3>
+  <div id="remotes"></div>
+
+  <!-- Socket.IO client from your server -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="./simple.js"></script>
+</body>
+</html>
