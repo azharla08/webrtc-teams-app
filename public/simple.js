@@ -13,6 +13,8 @@ let localStream;
 let joinedRoomId = null;
 // map of remoteSocketId -> RTCPeerConnection
 const peers = new Map();
+// queue ICE candidates that arrive before we have a remote description
+const pendingCandidates = new Map();
 
 function log(...args) { console.log('[simple]', ...args); }
 
@@ -57,7 +59,7 @@ async function createPeer(remoteSocketId) {
 
   // gather ICE and send to target peer via signaling
   pc.onicecandidate = (ev) => {
-    if (ev.candidate) {
+    if (ev.candidate && socket) {
       socket.emit('ice-candidate', {
         targetSocketId: remoteSocketId,
         candidate: ev.candidate
@@ -86,6 +88,40 @@ async function doOffer(remoteSocketId) {
   socket.emit('offer', { targetSocketId: remoteSocketId, offer });
 }
 
+function drainPendingCandidates(id) {
+  const pc = peers.get(id);
+  const q = pendingCandidates.get(id);
+  if (!pc || !q || q.length === 0) return;
+  (async () => {
+    for (const c of q) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); }
+      catch (e) { log('ICE add (drain) error', e); }
+    }
+    pendingCandidates.delete(id);
+  })();
+}
+
+async function doAnswer(fromSocketId, offer) {
+  const pc = peers.get(fromSocketId) || await createPeer(fromSocketId);
+  // Only respond to an offer when stable (perfect-negotiation pattern)
+  if (pc.signalingState !== 'stable') {
+    console.warn('[simple] got offer in state', pc.signalingState, '— rolling back');
+    await Promise.allSettled([
+      pc.setLocalDescription({ type: 'rollback' }),
+      pc.setRemoteDescription(offer)
+    ]);
+  } else {
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  }
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('answer', { targetSocketId: fromSocketId, answer });
+
+  // now it's safe to add any queued ICE from the caller
+  drainPendingCandidates(fromSocketId);
+}
+
 async function handleAnswer(fromSocketId, answer) {
   const pc = peers.get(fromSocketId);
   if (!pc) return;
@@ -95,17 +131,20 @@ async function handleAnswer(fromSocketId, answer) {
     return;
   }
   await pc.setRemoteDescription(new RTCSessionDescription(answer));
-}
-
-async function handleAnswer(fromSocketId, answer) {
-  const pc = peers.get(fromSocketId);
-  if (!pc) return;
-  await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  // safe to add any queued ICE from the answerer
+  drainPendingCandidates(fromSocketId);
 }
 
 async function handleIce(fromSocketId, candidate) {
   const pc = peers.get(fromSocketId);
   if (!pc) return;
+  // If remoteDescription isn't set yet, queue the candidate.
+  if (!pc.remoteDescription) {
+    const q = pendingCandidates.get(fromSocketId) || [];
+    q.push(candidate);
+    pendingCandidates.set(fromSocketId, q);
+    return;
+  }
   try {
     await pc.addIceCandidate(new RTCIceCandidate(candidate));
   } catch (e) {
@@ -159,12 +198,12 @@ async function join() {
     }
   });
 
-socket.on('user-joined', async ({ socketId }) => {
-  // Existing participants wait for the NEW joiner to offer (avoid glare).
-  // Pre-create the peer so tracks attach cleanly when offer arrives.
-  await createPeer(socketId);
-  // No offer here.
-});
+  socket.on('user-joined', async ({ socketId }) => {
+    // Existing participants wait for the NEW joiner to offer (avoid glare).
+    // Pre-create the peer so tracks attach cleanly when offer arrives.
+    await createPeer(socketId);
+    // No offer here.
+  });
 
   socket.on('offer', async ({ fromSocketId, offer }) => {
     await doAnswer(fromSocketId, offer);
@@ -183,6 +222,7 @@ socket.on('user-joined', async ({ socketId }) => {
     if (pc) { try { pc.close(); } catch {} }
     peers.delete(socketId);
     removeRemoteVideoEl(socketId);
+    pendingCandidates.delete(socketId);
   });
 
   socket.on('disconnect', () => {
