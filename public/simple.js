@@ -1,259 +1,204 @@
-// Simple WebRTC + Socket.IO client for your signaling server
-
 const qs = new URLSearchParams(location.search);
+const roomNameEl = document.getElementById('roomName');
 const roomIdInput = document.getElementById('roomId');
 const btnJoin = document.getElementById('btnJoin');
 const btnLeave = document.getElementById('btnLeave');
+const btnMuteAudio = document.getElementById('btnMuteAudio');
+const btnMuteVideo = document.getElementById('btnMuteVideo');
+const themeToggle = document.getElementById('themeToggle');
 const localVideo = document.getElementById('localVideo');
-const remotes = document.getElementById('remotes');
+const videosContainer = document.getElementById('videos');
 
-// keep some state
-let socket;
-let localStream;
-let joinedRoomId = null;
-// map of remoteSocketId -> RTCPeerConnection
+let socket, localStream, joinedRoomId = null;
 const peers = new Map();
-// queue ICE candidates that arrive before we have a remote description
 const pendingCandidates = new Map();
 
-function log(...args) { console.log('[simple]', ...args); }
+// Theme toggle
+themeToggle.addEventListener('click', () => {
+  const body = document.body;
+  const isLight = body.getAttribute('data-theme') === 'light';
+  body.setAttribute('data-theme', isLight ? 'dark' : 'light');
+  themeToggle.textContent = isLight ? 'Switch to Light' : 'Switch to Dark';
+});
 
+// Helpers
+function log(...args) { console.log('[simple]', ...args); }
 async function getIceServers() {
   try {
-    const r = await fetch('/api/ice');
-    const j = await r.json();
+    const res = await fetch('/api/ice');
+    const j = await res.json();
     return j.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }];
-  } catch (e) {
+  } catch {
     return [{ urls: 'stun:stun.l.google.com:19302' }];
   }
 }
+function addVideoCard(id, label = id, stream) {
+  let card = document.getElementById('card-' + id);
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'video-card';
+    card.id = 'card-' + id;
+    card.innerHTML = `
+      <div class="info">${label}</div>
+      <video id="vid-${id}" autoplay playsinline></video>
+      <div class="actions">
+        <button class="pip">PIP</button>
+        <button class="fs">FullScreen</button>
+      </div>
+    `;
+    videosContainer.appendChild(card);
 
-function addRemoteVideoEl(id) {
-  let el = document.getElementById('v-' + id);
-  if (!el) {
-    el = document.createElement('video');
-    el.id = 'v-' + id;
-    el.autoplay = true;
-    el.playsInline = true;
-    remotes.appendChild(el);
-  }
-  return el;
-}
-
-function removeRemoteVideoEl(id) {
-  const el = document.getElementById('v-' + id);
-  if (el && el.parentNode) el.parentNode.removeChild(el);
-}
-
-// create and wire an RTCPeerConnection for a given remote peer
-async function createPeer(remoteSocketId) {
-  const iceServers = await getIceServers();
-  const pc = new RTCPeerConnection({ iceServers });
-
-  // when we get a remote track, attach it
-  pc.ontrack = (ev) => {
-    const [stream] = ev.streams;
-    const el = addRemoteVideoEl(remoteSocketId);
-    el.srcObject = stream;
-  };
-
-  // gather ICE and send to target peer via signaling
-  pc.onicecandidate = (ev) => {
-    if (ev.candidate && socket) {
-      socket.emit('ice-candidate', {
-        targetSocketId: remoteSocketId,
-        candidate: ev.candidate
-      });
-    }
-  };
-
-  // add our local tracks
-  if (localStream) {
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  }
-
-  peers.set(remoteSocketId, pc);
-  return pc;
-}
-
-async function doOffer(remoteSocketId) {
-  const pc = peers.get(remoteSocketId) || await createPeer(remoteSocketId);
-  // Only create an offer from 'stable' state.
-  if (pc.signalingState !== 'stable') {
-    console.warn('[simple] skip offer, state =', pc.signalingState);
-    return;
-  }
-  const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-  await pc.setLocalDescription(offer);
-  socket.emit('offer', { targetSocketId: remoteSocketId, offer });
-}
-
-function drainPendingCandidates(id) {
-  const pc = peers.get(id);
-  const q = pendingCandidates.get(id);
-  if (!pc || !q || q.length === 0) return;
-  (async () => {
-    for (const c of q) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(c)); }
-      catch (e) { log('ICE add (drain) error', e); }
-    }
-    pendingCandidates.delete(id);
-  })();
-}
-
-async function doAnswer(fromSocketId, offer) {
-  const pc = peers.get(fromSocketId) || await createPeer(fromSocketId);
-  // Only respond to an offer when stable (perfect-negotiation pattern)
-  if (pc.signalingState !== 'stable') {
-    console.warn('[simple] got offer in state', pc.signalingState, '— rolling back');
-    await Promise.allSettled([
-      pc.setLocalDescription({ type: 'rollback' }),
-      pc.setRemoteDescription(offer)
-    ]);
+    const vid = card.querySelector('video');
+    vid.srcObject = stream;
+    // PIP
+    card.querySelector('.pip').onclick = async () => {
+      try { await vid.requestPictureInPicture(); } catch (e) { log(e); }
+    };
+    // Fullscreen
+    card.querySelector('.fs').onclick = () => {
+      vid.requestFullscreen().catch(e => log(e));
+    };
   } else {
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  }
-
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  socket.emit('answer', { targetSocketId: fromSocketId, answer });
-
-  // now it's safe to add any queued ICE from the caller
-  drainPendingCandidates(fromSocketId);
-}
-
-async function handleAnswer(fromSocketId, answer) {
-  const pc = peers.get(fromSocketId);
-  if (!pc) return;
-  // Only accept an answer when we actually have a local offer outstanding
-  if (pc.signalingState !== 'have-local-offer') {
-    console.warn('[simple] ignoring answer in state:', pc.signalingState);
-    return;
-  }
-  await pc.setRemoteDescription(new RTCSessionDescription(answer));
-  // safe to add any queued ICE from the answerer
-  drainPendingCandidates(fromSocketId);
-}
-
-async function handleIce(fromSocketId, candidate) {
-  const pc = peers.get(fromSocketId);
-  if (!pc) return;
-  // If remoteDescription isn't set yet, queue the candidate.
-  if (!pc.remoteDescription) {
-    const q = pendingCandidates.get(fromSocketId) || [];
-    q.push(candidate);
-    pendingCandidates.set(fromSocketId, q);
-    return;
-  }
-  try {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  } catch (e) {
-    log('ICE add error', e);
+    const vid = card.querySelector('video');
+    vid.srcObject = stream;
   }
 }
-
-async function startLocalMedia() {
-  if (localStream) return localStream;
-  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  localVideo.srcObject = localStream;
-  return localStream;
+function removeVideoCard(id) {
+  const card = document.getElementById('card-' + id);
+  if (card) card.remove();
 }
 
+// Media controls
+btnMuteAudio.addEventListener('click', () => {
+  if (!localStream) return;
+  const audioTrack = localStream.getAudioTracks()[0];
+  audioTrack.enabled = !audioTrack.enabled;
+  btnMuteAudio.textContent = audioTrack.enabled ? 'Mute Audio' : 'Unmute Audio';
+  socket.emit('toggle-audio', { enabled: audioTrack.enabled });
+});
+btnMuteVideo.addEventListener('click', () => {
+  if (!localStream) return;
+  const videoTrack = localStream.getVideoTracks()[0];
+  videoTrack.enabled = !videoTrack.enabled;
+  btnMuteVideo.textContent = videoTrack.enabled ? 'Disable Video' : 'Enable Video';
+  socket.emit('toggle-video', { enabled: videoTrack.enabled });
+});
+
+// Clean up
 function cleanup() {
-  peers.forEach((pc, id) => { try { pc.close(); } catch {} });
+  peers.forEach(pc => pc.close());
   peers.clear();
-  remotes.innerHTML = '';
+  pendingCandidates.clear();
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
-    localVideo.srcObject = null;
   }
-  if (socket) {
-    try { socket.disconnect(); } catch {}
-    socket = null;
-  }
-  joinedRoomId = null;
+  videosContainer.querySelectorAll('.video-card:not(#localCard)')
+    .forEach(c => c.remove());
+  roomNameEl.textContent = '—';
   btnLeave.disabled = true;
+  btnMuteAudio.disabled = true;
+  btnMuteVideo.disabled = true;
   btnJoin.disabled = false;
   roomIdInput.disabled = false;
+  joinedRoomId = null;
+  socket.disconnect();
 }
 
+// Join & Leave
 async function join() {
   const roomId = roomIdInput.value.trim();
-  if (!roomId) { alert('Enter a Room ID'); return; }
+  if (!roomId) return alert('Enter a Room ID');
+  // Get media
+  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  localVideo.srcObject = localStream;
 
-  await startLocalMedia();
-
-  // connect socket.io (same origin)
+  // Socket.io
   socket = io({ transports: ['websocket'] });
+  socket.on('connect', () => log('connected', socket.id));
 
-  // socket event handlers (match your server’s events)
-  socket.on('connect', () => log('socket connected', socket.id));
-
-  socket.on('room-joined', async ({ participants }) => {
-    // we joined; make offers to existing peers
-    for (const p of participants) {
-      await createPeer(p.socketId);
-      await doOffer(p.socketId);
-    }
+  socket.on('room-joined', ({ participants }) => {
+    roomNameEl.textContent = roomId;
+    participants.forEach(p => createPeer(p.socketId, p.name, true));
   });
-
-  socket.on('user-joined', async ({ socketId }) => {
-    // Existing participants wait for the NEW joiner to offer (avoid glare).
-    // Pre-create the peer so tracks attach cleanly when offer arrives.
-    await createPeer(socketId);
-    // No offer here.
+  socket.on('user-joined', ({ socketId, name }) => {
+    createPeer(socketId, name, false);
   });
-
-  socket.on('offer', async ({ fromSocketId, offer }) => {
-    await doAnswer(fromSocketId, offer);
+  socket.on('offer', async ({ fromSocketId, offer, name }) => {
+    await handleOffer(fromSocketId, offer, name);
   });
-
-  socket.on('answer', async ({ fromSocketId, answer }) => {
-    await handleAnswer(fromSocketId, answer);
-  });
-
-  socket.on('ice-candidate', async ({ fromSocketId, candidate }) => {
-    await handleIce(fromSocketId, candidate);
-  });
-
+  socket.on('answer', ({ fromSocketId, answer }) => handleAnswer(fromSocketId, answer));
+  socket.on('ice-candidate', ({ fromSocketId, candidate }) => handleIce(fromSocketId, candidate));
   socket.on('user-left', ({ socketId }) => {
     const pc = peers.get(socketId);
-    if (pc) { try { pc.close(); } catch {} }
+    if (pc) pc.close();
     peers.delete(socketId);
-    removeRemoteVideoEl(socketId);
-    pendingCandidates.delete(socketId);
+    removeVideoCard(socketId);
   });
 
-  socket.on('disconnect', () => {
-    log('socket disconnected');
-  });
-
-  // finally, ask server to join
-  socket.emit('join-room', {
-    roomId,
-    userData: { name: 'Guest', roomName: roomId }
-  });
-
+  // Join
+  socket.emit('join-room', { roomId, userData: { name: 'Guest' } });
   joinedRoomId = roomId;
   btnJoin.disabled = true;
   btnLeave.disabled = false;
+  btnMuteAudio.disabled = false;
+  btnMuteVideo.disabled = false;
   roomIdInput.disabled = true;
 }
 
 function leave() {
-  if (socket) {
-    socket.emit('leave-room');
-  }
+  socket.emit('leave-room');
   cleanup();
 }
 
-// UI wiring
 btnJoin.addEventListener('click', join);
 btnLeave.addEventListener('click', leave);
 
-// optional: prefill room from ?room= query
-const qpRoom = qs.get('room');
-if (qpRoom) {
-  roomIdInput.value = qpRoom;
+// Peer connection helpers
+async function createPeer(id, name, makeOffer) {
+  const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
+  // Attach local tracks
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  // Incoming
+  pc.ontrack = ev => addVideoCard(id, name, ev.streams[0]);
+  // ICE
+  pc.onicecandidate = ev => {
+    if (ev.candidate) {
+      socket.emit('ice-candidate', { targetSocketId: id, candidate: ev.candidate });
+    }
+  };
+  peers.set(id, pc);
+  addVideoCard(id, name, new MediaStream()); // placeholder
+
+  if (makeOffer) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('offer', { targetSocketId: id, offer, name: 'Guest' });
+  }
+  return pc;
+}
+
+async function handleOffer(id, offer, name) {
+  const pc = peers.get(id) || await createPeer(id, name, false);
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('answer', { targetSocketId: id, answer });
+}
+
+function handleAnswer(id, answer) {
+  const pc = peers.get(id);
+  if (!pc) return;
+  pc.setRemoteDescription(answer);
+}
+
+function handleIce(id, candidate) {
+  const pc = peers.get(id);
+  if (pc?.remoteDescription) {
+    pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(log);
+  } else {
+    const q = pendingCandidates.get(id) || [];
+    q.push(candidate);
+    pendingCandidates.set(id, q);
+  }
 }
