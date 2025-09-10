@@ -134,10 +134,9 @@ app.get("/", (req, res) => {
   fs.readFile(p, "utf8", (err, html) => {
     if (err) return res.status(500).send("simple.html not found");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // No inline scripts in simple.html anymore, so no nonce injection required;
-    // but keeping CSP strict still works fine.
     res.send(html);
   });
+});
 });
 
 // Optional: a simple test page (served similarly)

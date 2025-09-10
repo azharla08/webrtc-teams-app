@@ -1,3 +1,17 @@
+// === Quality: Improved capture constraints (1080p30) ===
+const mediaConstraints = {
+  video: {
+    width:  { ideal: 1920, max: 1920 },
+    height: { ideal: 1080, max: 1080 },
+    frameRate: { ideal: 30, max: 30 }
+  },
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: false
+  }
+};
+
 
     // Global variables
     let localStream = null;
@@ -19,7 +33,9 @@
     };
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', async () => {
+    document.addEventListener('DOMContentLoaded', async () 
+updateParticipantCount();
+=> {
       await loadDevices();
       await initPreview();
       
@@ -208,6 +224,8 @@
     async function createPeer(remoteSocketId) {
       const iceServers = await getIceServers();
       const pc = new RTCPeerConnection({ iceServers });
+watchOutboundVideoStats(pc);
+
 
       // when we get a remote track, attach it
       pc.ontrack = (ev) => {
@@ -231,7 +249,8 @@
       }
 
       peers.set(remoteSocketId, pc);
-      return pc;
+      updateParticipantCount();
+return pc;
     }
 
     async function doOffer(remoteSocketId) {
@@ -409,7 +428,8 @@
         const pc = peers.get(socketId);
         if (pc) { try { pc.close(); } catch {} }
         peers.delete(socketId);
-        removeParticipant(socketId);
+        updateParticipantCount();
+removeParticipant(socketId);
         pendingCandidates.delete(socketId);
         
         // Update participant count
@@ -791,3 +811,64 @@
       alert('Mute request sent to participant');
     }
   
+// === Quality: Apply higher bitrate & stable framerate to video sender ===
+async function applyVideoSenderParams(pc, localStream, kbps=3500) {
+  const vt = localStream.getVideoTracks()[0];
+  if (!vt) return;
+  let sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+  if (!sender) {
+    try { sender = pc.addTrack(vt, localStream); } catch (e) {}
+  }
+  if (!sender) return;
+  const p = sender.getParameters();
+  if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+  p.encodings[0].maxBitrate = kbps * 1000;
+  p.encodings[0].maxFramerate = 30;
+  p.degradationPreference = 'maintain-framerate';
+  try { await sender.setParameters(p); } catch (e) { console.warn('setParameters failed', e); }
+}
+
+
+// === Quality: Prefer better codecs (VP9/VP8 or H.264 on Safari) ===
+function preferBestVideoCodecs(pc) {
+  const tx = (pc.getTransceivers && pc.getTransceivers().find(t => t.sender && t.sender.track && t.sender.track.kind === 'video')) || null;
+  if (!tx || !window.RTCRtpSender || !RTCRtpSender.getCapabilities) return;
+  const caps = RTCRtpSender.getCapabilities('video');
+  if (!caps || !caps.codecs) return;
+  const ua = navigator.userAgent;
+  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+  const find = t => caps.codecs.find(c => (c.mimeType || '').toLowerCase() === t);
+  const picks = [];
+  if (isSafari && find('video/h264')) picks.push(find('video/h264'));
+  else {
+    if (find('video/vp9')) picks.push(find('video/vp9'));
+    if (find('video/vp8')) picks.push(find('video/vp8'));
+    if (find('video/h264')) picks.push(find('video/h264'));
+  }
+  const rest = caps.codecs.filter(c => !picks.includes(c));
+  try { tx.setCodecPreferences([...picks, ...rest]); } catch (e) { console.warn('codec pref failed', e); }
+}
+
+
+// === Quality: watch outbound stats (debug) ===
+function watchOutboundVideoStats(pc) {
+  let lastBytes = 0, lastTs = 0;
+  setInterval(async () => {
+    const stats = await pc.getStats();
+    stats.forEach(r => {
+      if (r.type === 'outbound-rtp' && r.kind === 'video' && !r.isRemote) {
+        if (lastTs) {
+          const dt = (r.timestamp - lastTs) / 1000;
+          const db = r.bytesSent - lastBytes;
+          const kbps = (db * 8 / 1000) / dt;
+          console.log(`↑ video ~${kbps.toFixed(0)} kbps, fps=${r.framesPerSecond || '?'}, loss=${r.packetsLost || 0}`);
+        }
+        lastBytes = r.bytesSent;
+        lastTs = r.timestamp;
+      }
+    });
+  }, 5000);
+}
+
+
+try { setInterval(updateParticipantCount, 5000); } catch(e) {}
