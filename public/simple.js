@@ -33,9 +33,9 @@ const mediaConstraints = {
     };
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', async () 
-updateParticipantCount();
-=> {
+    document.addEventListener('DOMContentLoaded', async () => {
+  updateParticipantCount();
+
       await loadDevices();
       await initPreview();
       

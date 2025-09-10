@@ -137,6 +137,7 @@ app.get("/", (req, res) => {
     res.send(html);
   });
 });
+});
 
 // Optional: a simple test page (served similarly)
 app.get("/simple", (req, res) => {
